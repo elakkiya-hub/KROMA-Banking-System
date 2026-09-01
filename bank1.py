@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 # ================= DATABASE =================
 
 def db():
@@ -16,7 +17,6 @@ def db():
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME")
     )
-    
 
 
 # ================= PAGE =================
@@ -89,21 +89,18 @@ if not st.session_state.login:
         unsafe_allow_html=True
     )
 
-    st.write("")
-
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
 
         st.subheader("🔐 Login")
 
-        # ADMIN / USER
-
         login_type = st.radio(
             "Login As",
             ["👨‍💼 Admin", "👤 User"],
             horizontal=True
         )
+
 
         # =================================================
         # ADMIN LOGIN
@@ -224,6 +221,7 @@ elif st.session_state.role == "admin":
             "🔑 Password",
             "🗑️ Delete Account",
             "💰 Check Balance",
+            "📊 Transaction History",
             "🚪 Exit"
         ]
     )
@@ -287,8 +285,6 @@ elif st.session_state.role == "admin":
             step=100.0
         )
 
-        # AVAILABLE BALANCE
-
         display_name = name if name else "Customer"
 
         st.info(
@@ -326,6 +322,7 @@ elif st.session_state.role == "admin":
                     conn = db()
                     cursor = conn.cursor()
 
+                    # CREATE ACCOUNT
                     cursor.execute(
                         """
                         INSERT INTO bank
@@ -337,6 +334,16 @@ elif st.session_state.role == "admin":
 
                     new_id = cursor.lastrowid
 
+                    # INITIAL DEPOSIT
+                    cursor.execute(
+                        """
+                        INSERT INTO transactions
+                        (user_id, type, amount, balance_after)
+                        VALUES (%s, 'Deposit', %s, %s)
+                        """,
+                        (new_id, amount, amount)
+                    )
+
                     conn.commit()
                     conn.close()
 
@@ -345,7 +352,7 @@ elif st.session_state.role == "admin":
                     )
 
                     st.info(
-                        f"👤 Name: {name}    |    "
+                        f"👤 Name: {name} | "
                         f"💰 Available Balance: ₹{amount:,.2f}"
                     )
 
@@ -368,13 +375,9 @@ elif st.session_state.role == "admin":
 
         st.title("🔑 Admin Password")
 
-        st.info(
-            "Admin ID: 1"
-        )
+        st.info("Admin ID: 1")
 
-        st.info(
-            "Admin Password: admin123"
-        )
+        st.info("Admin Password: admin123")
 
 
     # =====================================================
@@ -418,6 +421,16 @@ elif st.session_state.role == "admin":
                     use_container_width=True
                 ):
 
+                    # DELETE TRANSACTIONS
+                    cursor.execute(
+                        """
+                        DELETE FROM transactions
+                        WHERE user_id=%s
+                        """,
+                        (selected[0],)
+                    )
+
+                    # DELETE ACCOUNT
                     cursor.execute(
                         """
                         DELETE FROM bank
@@ -491,6 +504,58 @@ elif st.session_state.role == "admin":
 
 
     # =====================================================
+    # ADMIN - TRANSACTION HISTORY
+    # =====================================================
+
+    elif menu == "📊 Transaction History":
+
+        st.title("📊 All Transaction History")
+
+        try:
+
+            conn = db()
+
+            df = pd.read_sql(
+                """
+                SELECT
+                    t.user_id AS User_ID,
+                    b.name AS Name,
+                    t.type AS Type,
+                    t.amount AS Amount,
+                    t.balance_after AS Balance,
+                    t.created_at AS Date
+                FROM transactions t
+                JOIN bank b
+                ON t.user_id = b.id
+                ORDER BY t.created_at DESC
+                """,
+                conn
+            )
+
+            conn.close()
+
+            if not df.empty:
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            else:
+
+                st.info(
+                    "No transactions found."
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"Error: {e}"
+            )
+
+
+    # =====================================================
     # ADMIN - EXIT
     # =====================================================
 
@@ -520,6 +585,7 @@ else:
             "💰 Deposit",
             "💸 Withdraw",
             "💳 Check Balance",
+            "📊 My Transactions",
             "🚪 Logout",
             "🚪 Exit"
         ]
@@ -562,27 +628,14 @@ else:
 
             if user:
 
-                st.write(
-                    f"**🆔 User ID:** {user[0]}"
-                )
-
-                st.write(
-                    f"**👤 Name:** {user[1]}"
-                )
-
-                st.write(
-                    f"**🔑 PIN:** {user[2]}"
-                )
-
+                st.write(f"**🆔 User ID:** {user[0]}")
+                st.write(f"**👤 Name:** {user[1]}")
+                st.write(f"**🔑 PIN:** {user[2]}")
                 st.write(
                     f"**💰 Available Balance:** "
                     f"₹{float(user[3]):,.2f}"
                 )
-
-                st.write(
-                    f"**📅 Created:** {user[4]}"
-                )
-
+                st.write(f"**📅 Created:** {user[4]}")
 
         except Exception as e:
 
@@ -622,7 +675,7 @@ else:
                 balance = float(user[1])
 
                 st.info(
-                    f"👤 Name: {name}    |    "
+                    f"👤 Name: {name} | "
                     f"💰 Available Balance: ₹{balance:,.2f}"
                 )
 
@@ -644,6 +697,7 @@ else:
                     use_container_width=True
                 ):
 
+                    # UPDATE BALANCE
                     cursor.execute(
                         """
                         UPDATE bank
@@ -654,7 +708,18 @@ else:
                         (new_balance, uid)
                     )
 
+                    # SAVE TRANSACTION
+                    cursor.execute(
+                        """
+                        INSERT INTO transactions
+                        (user_id, type, amount, balance_after)
+                        VALUES (%s, 'Deposit', %s, %s)
+                        """,
+                        (uid, amount, new_balance)
+                    )
+
                     conn.commit()
+                    conn.close()
 
                     st.success(
                         f"₹{amount:,.2f} Deposited Successfully!"
@@ -666,7 +731,9 @@ else:
                         f"₹{new_balance:,.2f}"
                     )
 
-            conn.close()
+            else:
+
+                conn.close()
 
         except Exception as e:
 
@@ -706,7 +773,7 @@ else:
                 balance = float(user[1])
 
                 st.info(
-                    f"👤 Name: {name}    |    "
+                    f"👤 Name: {name} | "
                     f"💰 Available Balance: ₹{balance:,.2f}"
                 )
 
@@ -740,6 +807,7 @@ else:
 
                     if amount <= balance:
 
+                        # UPDATE BALANCE
                         cursor.execute(
                             """
                             UPDATE bank
@@ -750,7 +818,18 @@ else:
                             (new_balance, uid)
                         )
 
+                        # SAVE TRANSACTION
+                        cursor.execute(
+                            """
+                            INSERT INTO transactions
+                            (user_id, type, amount, balance_after)
+                            VALUES (%s, 'Withdraw', %s, %s)
+                            """,
+                            (uid, amount, new_balance)
+                        )
+
                         conn.commit()
+                        conn.close()
 
                         st.success(
                             f"₹{amount:,.2f} Withdrawn Successfully!"
@@ -768,7 +847,9 @@ else:
                             "Insufficient Balance!"
                         )
 
-            conn.close()
+            else:
+
+                conn.close()
 
         except Exception as e:
 
@@ -809,6 +890,56 @@ else:
                 st.metric(
                     f"👤 {result[0]}",
                     f"₹{float(result[1]):,.2f}"
+                )
+
+        except Exception as e:
+
+            st.error(
+                f"Error: {e}"
+            )
+
+
+    # =====================================================
+    # USER - MY TRANSACTIONS
+    # =====================================================
+
+    elif menu == "📊 My Transactions":
+
+        st.title("📊 My Transaction History")
+
+        try:
+
+            conn = db()
+
+            df = pd.read_sql(
+                """
+                SELECT
+                    type AS Type,
+                    amount AS Amount,
+                    balance_after AS Balance,
+                    created_at AS Date
+                FROM transactions
+                WHERE user_id=%s
+                ORDER BY created_at DESC
+                """,
+                conn,
+                params=(uid,)
+            )
+
+            conn.close()
+
+            if not df.empty:
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            else:
+
+                st.info(
+                    "No transactions found."
                 )
 
         except Exception as e:

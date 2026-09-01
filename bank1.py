@@ -233,37 +233,97 @@ elif st.session_state.role == "admin":
 
     if menu == "👥 Account View":
 
-        st.title("👥 All Customer Accounts")
+        st.title("👥 Customer Accounts")
 
         try:
 
             conn = db()
 
-            df = pd.read_sql(
-                """
-                SELECT
-                    id,
-                    name,
-                    pin,
-                    balance,
-                    created_at
-                FROM bank
-                WHERE role='user'
-                """,
-                conn
+            # SEARCH
+            search = st.text_input(
+                "🔍 Search by User ID or Name",
+                placeholder="Enter ID or customer name"
             )
+
+            if search.strip():
+
+                if search.isdigit():
+
+                    df = pd.read_sql(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            pin,
+                            balance,
+                            created_at
+                        FROM bank
+                        WHERE role='user'
+                        AND id=%s
+                        """,
+                        conn,
+                        params=(int(search),)
+                    )
+
+                else:
+
+                    df = pd.read_sql(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            pin,
+                            balance,
+                            created_at
+                        FROM bank
+                        WHERE role='user'
+                        AND name LIKE %s
+                        """,
+                        conn,
+                        params=(f"%{search}%",)
+                    )
+
+            else:
+
+                df = pd.read_sql(
+                    """
+                    SELECT
+                        id,
+                        name,
+                        pin,
+                        balance,
+                        created_at
+                    FROM bank
+                    WHERE role='user'
+                    """,
+                    conn
+                )
 
             conn.close()
 
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
+            if not df.empty:
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                st.success(
+                    f"Total Accounts Found: {len(df)}"
+                )
+
+            else:
+
+                st.info(
+                    "No customer accounts found."
+                )
 
         except Exception as e:
 
-            st.error(f"Error: {e}")
+            st.error(
+                f"Error: {e}"
+            )
 
 
     # =====================================================
@@ -288,7 +348,7 @@ elif st.session_state.role == "admin":
         display_name = name if name else "Customer"
 
         st.info(
-            f"👤 Name: {display_name}    |    "
+            f"👤 Name: {display_name} | "
             f"💰 Available Balance: ₹{amount:,.2f}"
         )
 
@@ -303,7 +363,7 @@ elif st.session_state.role == "admin":
             use_container_width=True
         ):
 
-            if name == "" or pin == "":
+            if name.strip() == "" or pin == "":
 
                 st.warning(
                     "Please enter all details."
@@ -329,12 +389,12 @@ elif st.session_state.role == "admin":
                         (name, balance, pin, role)
                         VALUES (%s, %s, %s, 'user')
                         """,
-                        (name, amount, pin)
+                        (name.strip(), amount, pin)
                     )
 
                     new_id = cursor.lastrowid
 
-                    # INITIAL DEPOSIT
+                    # INITIAL DEPOSIT TRANSACTION
                     cursor.execute(
                         """
                         INSERT INTO transactions
@@ -352,7 +412,7 @@ elif st.session_state.role == "admin":
                     )
 
                     st.info(
-                        f"👤 Name: {name} | "
+                        f"👤 Name: {name.strip()} | "
                         f"💰 Available Balance: ₹{amount:,.2f}"
                     )
 
@@ -376,7 +436,6 @@ elif st.session_state.role == "admin":
         st.title("🔑 Admin Password")
 
         st.info("Admin ID: 1")
-
         st.info("Admin Password: admin123")
 
 
@@ -484,17 +543,26 @@ elif st.session_state.role == "admin":
                     balance
                 FROM bank
                 WHERE role='user'
+                ORDER BY id
                 """,
                 conn
             )
 
             conn.close()
 
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True
-            )
+            if not df.empty:
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            else:
+
+                st.info(
+                    "No customer accounts found."
+                )
 
         except Exception as e:
 
@@ -515,9 +583,24 @@ elif st.session_state.role == "admin":
 
             conn = db()
 
-            df = pd.read_sql(
-                """
+            # TRANSACTION TYPE FILTER
+            transaction_filter = st.selectbox(
+                "🔽 Filter Transaction",
+                [
+                    "All",
+                    "Deposit",
+                    "Withdraw"
+                ]
+            )
+
+            # SEARCH
+            search = st.text_input(
+                "🔍 Search by User ID or Name"
+            )
+
+            query = """
                 SELECT
+                    t.trans_id AS Transaction_ID,
                     t.user_id AS User_ID,
                     b.name AS Name,
                     t.type AS Type,
@@ -527,9 +610,36 @@ elif st.session_state.role == "admin":
                 FROM transactions t
                 JOIN bank b
                 ON t.user_id = b.id
-                ORDER BY t.created_at DESC
-                """,
-                conn
+                WHERE 1=1
+            """
+
+            params = []
+
+            # TYPE FILTER
+            if transaction_filter != "All":
+
+                query += " AND t.type=%s"
+                params.append(transaction_filter)
+
+            # SEARCH FILTER
+            if search.strip():
+
+                if search.isdigit():
+
+                    query += " AND t.user_id=%s"
+                    params.append(int(search))
+
+                else:
+
+                    query += " AND b.name LIKE %s"
+                    params.append(f"%{search}%")
+
+            query += " ORDER BY t.created_at DESC"
+
+            df = pd.read_sql(
+                query,
+                conn,
+                params=params
             )
 
             conn.close()
@@ -540,6 +650,10 @@ elif st.session_state.role == "admin":
                     df,
                     use_container_width=True,
                     hide_index=True
+                )
+
+                st.success(
+                    f"Transactions Found: {len(df)}"
                 )
 
             else:
@@ -631,11 +745,15 @@ else:
                 st.write(f"**🆔 User ID:** {user[0]}")
                 st.write(f"**👤 Name:** {user[1]}")
                 st.write(f"**🔑 PIN:** {user[2]}")
+
                 st.write(
                     f"**💰 Available Balance:** "
                     f"₹{float(user[3]):,.2f}"
                 )
-                st.write(f"**📅 Created:** {user[4]}")
+
+                st.write(
+                    f"**📅 Created:** {user[4]}"
+                )
 
         except Exception as e:
 
@@ -911,20 +1029,51 @@ else:
 
             conn = db()
 
-            df = pd.read_sql(
-                """
-                SELECT
-                    type AS Type,
-                    amount AS Amount,
-                    balance_after AS Balance,
-                    created_at AS Date
-                FROM transactions
-                WHERE user_id=%s
-                ORDER BY created_at DESC
-                """,
-                conn,
-                params=(uid,)
+            transaction_filter = st.selectbox(
+                "🔽 Filter Transaction",
+                [
+                    "All",
+                    "Deposit",
+                    "Withdraw"
+                ]
             )
+
+            if transaction_filter == "All":
+
+                df = pd.read_sql(
+                    """
+                    SELECT
+                        trans_id AS Transaction_ID,
+                        type AS Type,
+                        amount AS Amount,
+                        balance_after AS Balance,
+                        created_at AS Date
+                    FROM transactions
+                    WHERE user_id=%s
+                    ORDER BY created_at DESC
+                    """,
+                    conn,
+                    params=(uid,)
+                )
+
+            else:
+
+                df = pd.read_sql(
+                    """
+                    SELECT
+                        trans_id AS Transaction_ID,
+                        type AS Type,
+                        amount AS Amount,
+                        balance_after AS Balance,
+                        created_at AS Date
+                    FROM transactions
+                    WHERE user_id=%s
+                    AND type=%s
+                    ORDER BY created_at DESC
+                    """,
+                    conn,
+                    params=(uid, transaction_filter)
+                )
 
             conn.close()
 
@@ -934,6 +1083,10 @@ else:
                     df,
                     use_container_width=True,
                     hide_index=True
+                )
+
+                st.success(
+                    f"Transactions Found: {len(df)}"
                 )
 
             else:
